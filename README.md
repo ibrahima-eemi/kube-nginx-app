@@ -1,108 +1,178 @@
-# kube-nginx-app — Apache Reverse Proxy + Kubernetes
+# kube-nginx-app — Application Apache sur Kubernetes
 
-Déploiement d'une application statique dans un cluster Kubernetes avec un reverse proxy Apache pour exposer l'application localement et sur le réseau local **sans utiliser MetalLB**.
+Déploiement d'une application Apache statique dans un cluster Kubernetes avec exposition externe via LoadBalancer pour un accès depuis le réseau local.
 
 ---
 
 ## Prérequis
 
-- Kubernetes (ex. : cluster k3s, kubeadm, ou kind)
-- Apache2 installé sur l'hôte
-- Modules Apache activés : `proxy`, `proxy_http`
-- Port `8080` exposé en NodePort (configurable)
+- Docker Desktop avec Kubernetes activé
+- kubectl configuré pour accéder au cluster
+- Windows PowerShell ou terminal équivalent
 
 ---
 
 ## Contenu du projet
 
-```bash
+```txt
 kube-nginx-app/
-├── configmap.yaml        # Contient le HTML à déployer
-├── deployment.yaml       # Déploiement Apache + Probes
-├── service.yaml          # Service NodePort (expose sur 30080)
-├── ingress.yaml          # (optionnel) Ingress NGINX
-├── index.html            # Fichier HTML "Hello Kubernetes !"
+├── configmap.yaml        # ConfigMap contenant le HTML personnalisé
+├── deployment.yaml       # Déploiement Apache avec 2 réplicas + Health Checks
+├── service.yaml          # Service LoadBalancer (expose sur port 80)
+├── index.html            # Fichier HTML source
 └── README.md             # Ce fichier
 ```
 
 ## Déploiement Kubernetes
 
-### Appliquer les fichiers YAML
+### 1. Déployer l'application
 
-```bash
+```powershell
+kubectl apply -f configmap.yaml
+kubectl apply -f deployment.yaml
+kubectl apply -f service.yaml
+```
+
+Ou déployer tous les fichiers en une fois :
+
+```powershell
 kubectl apply -f .
 ```
 
-### Vérifier les pods
+### 2. Vérifier le déploiement
 
-```bash
+Vérifier que les pods sont en cours d'exécution :
+
+```powershell
 kubectl get pods
 ```
 
-### Vérifier le service
+Résultat attendu :
 
-```bash
+```txt
+NAME                         READY   STATUS    RESTARTS   AGE
+apache-app-xxxxxxxxx-xxxxx   1/1     Running   0          30s
+apache-app-xxxxxxxxx-xxxxx   1/1     Running   0          30s
+```
+
+### 3. Vérifier le service
+
+```powershell
 kubectl get svc apache-service
 ```
-Vérifie que le NodePort est exposé (par défaut : 30080)
 
-### Vérifier les endpoints
+Résultat attendu :
 
-```bash
+```txt
+NAME             TYPE           CLUSTER-IP     EXTERNAL-IP   PORT(S)        AGE
+apache-service   LoadBalancer   10.102.186.7   localhost     80:30000/TCP   5m
+```
+
+### 4. Vérifier les endpoints
+
+```powershell
 kubectl get endpoints apache-service
 ```
 
-## Configuration Apache (Reverse Proxy)
+## Accès à l'application
 
-### /etc/apache2/sites-available/kube-proxy.conf
+### Accès local
 
-```apache
-<VirtualHost *:80>
-    ServerName apache.local
-    ServerAlias 10.0.10.xxx
+L'application est accessible depuis votre machine via :
 
-    ProxyPreserveHost On
-    ProxyPass / http://localhost:8080/
-    ProxyPassReverse / http://localhost:8080/
-</VirtualHost>
+```powershell
+http://localhost
 ```
 
-### Activer le reverse proxy :
+### Accès depuis le réseau local
 
-```bash
-sudo a2enmod proxy
-sudo a2enmod proxy_http
-sudo a2dissite 000-default.conf
-sudo a2ensite kube-proxy.conf
-sudo systemctl reload apache2
+Pour permettre l'accès depuis d'autres machines du réseau :
+
+1. Trouvez l'IP de votre machine Windows :
+
+   ```powershell
+   ipconfig
+   ```
+
+2. Trouvez l'IP de votre machine Linux :
+
+    ```bash
+    ifconfig
+    ```
+
+3. Les autres machines du réseau peuvent accéder via :
+
+   ```powershell
+   http://[VOTRE_IP_WINDOWS]
+   ```
+
+### Test de l'application
+
+Testez l'accès avec curl :
+
+```powershell
+curl http://localhost
 ```
 
-## Accès
+Réponse attendue :
 
-Depuis une machine sur le réseau local :
-
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Bienvenue</title>
+</head>
+<body>
+  <h1>Hello Apache2 on Kubernetes!</h1>
+</body>
+</html>
 ```
-http://10.0.10.xxx
+
+## Architecture
+
+- **Deployment** : 2 réplicas Apache avec health checks (liveness/readiness probes)
+- **ConfigMap** : Contient le fichier HTML personnalisé monté dans les containers
+- **Service LoadBalancer** : Expose l'application sur localhost pour Docker Desktop
+- **Ressources** : Limites CPU (0.5) et mémoire (512Mi) par pod
+
+## Dépannage
+
+### Pods en état Pending
+
+Si un pod reste en état "Pending", vérifiez :
+
+```powershell
+kubectl describe pod [NOM_DU_POD]
 ```
 
-Remplace l'adresse IP par celle de ta machine hôte (`ip a`).
+### Service non accessible
 
-## Notes
+Vérifiez que le service a une IP externe :
 
-- Ne nécessite aucun LoadBalancer ni MetalLB
-- Le reverse proxy Apache fait office de passerelle vers ton cluster
-- Possibilité d'utiliser un nom de domaine local (apache.local) via /etc/hosts
+```powershell
+kubectl get svc apache-service -o wide
+```
 
-## (Optionnel) HTTPS
+### Logs des containers
 
-Tu peux sécuriser l'accès via Let's Encrypt ou un certificat local en utilisant mod_ssl.
+Pour voir les logs d'un pod :
+
+```powershell
+kubectl logs [NOM_DU_POD]
+```
 
 ## Nettoyage
 
-```bash
+Pour supprimer toutes les ressources :
+
+```powershell
 kubectl delete -f .
 ```
 
-## 👤 Auteur
+Ou individuellement :
 
-Barry
+```powershell
+kubectl delete deployment apache-app
+kubectl delete service apache-service
+kubectl delete configmap apache2-html-config
+```
